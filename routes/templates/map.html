@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Fuel Route</title>
+  <link rel="icon" href="data:,">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    body { margin: 0; font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; }
+    form { padding: 10px; display: flex; gap: 8px; border-bottom: 1px solid #ddd; }
+    input { padding: 6px; width: 220px; }
+    #info { padding: 8px 10px; font-size: 14px; border-bottom: 1px solid #ddd; }
+    #map { flex: 1; }
+  </style>
+</head>
+<body>
+  <form onsubmit="event.preventDefault(); draw(start.value, finish.value)">
+    <input id="start" placeholder="Start (Los Angeles, CA)" required>
+    <input id="finish" placeholder="Finish (New York, NY)" required>
+    <button>Plan</button>
+  </form>
+  <div id="info"></div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map("map").setView([39, -97], 4);
+    // esri tiles, free and no referer rules (osm.org tiles blocked some browsers)
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", {
+      attribution: "Tiles &copy; Esri | Route by OSRM, data &copy; OpenStreetMap contributors", maxZoom: 18,
+    }).addTo(map);
+    const layer = L.featureGroup().addTo(map);
+
+    async function draw(from, to) {
+      info.textContent = "Planning...";
+      const res = await fetch("/api/route/?" + new URLSearchParams({ start: from, finish: to }));
+      const d = await res.json();
+      if (!res.ok) { info.textContent = d.error; return; }
+
+      layer.clearLayers();
+      L.geoJSON(d.route).addTo(layer);
+      L.marker([d.start.lat, d.start.lon]).bindPopup("Start: " + d.start.name).addTo(layer);
+      L.marker([d.finish.lat, d.finish.lon]).bindPopup("Finish: " + d.finish.name).addTo(layer);
+      for (const s of d.fuel_stops) {
+        L.circleMarker([s.lat, s.lon], { radius: 8, color: "red", fillOpacity: 0.8 })
+          .bindPopup(`<b>${s.name}</b><br>${s.address}<br>${s.city}, ${s.state} (mile ${s.mile})<br>$${s.price.toFixed(3)}/gal, buy ${s.gallons} gal = $${s.cost}`)
+          .addTo(layer);
+      }
+      map.fitBounds(layer.getBounds().pad(0.05));
+      info.textContent = `${d.distance_miles} miles, ${d.duration_hours} h, ${d.fuel_stops.length} fuel stops, ${d.total_gallons} gal, total fuel cost $${d.total_fuel_cost}`;
+    }
+
+    // open with ?start=..&finish=.. and it draws right away
+    const q = new URLSearchParams(location.search);
+    if (q.get("start") && q.get("finish")) {
+      start.value = q.get("start"); finish.value = q.get("finish");
+      draw(start.value, finish.value);
+    }
+  </script>
+</body>
+</html>
